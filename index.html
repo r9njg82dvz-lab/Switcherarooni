@@ -317,7 +317,8 @@
   <div class="legend">
     <span class="item"><span class="chip">&#9744;</span> Not started</span>
     <span class="item"><span class="chip done">&#10003;</span> Complete</span>
-    <span class="item">&mdash; tap a box to mark it done, tap again to undo &middot; if an item doesn't apply at a location, leave it unticked and note "N/A" in Comments &middot; row highlights green once all 4 items are ticked</span>
+    <span class="item"><span class="chip na">N/A</span> Not applicable</span>
+    <span class="item">&mdash; tap a box to cycle: not started &rarr; complete &rarr; N/A &rarr; back to not started &middot; row highlights green once all 4 items are resolved (complete or N/A)</span>
   </div>
 
   <footer>This file saves to this browser only. Use Export backup to hand progress to someone else or move it to another device.</footer>
@@ -445,20 +446,31 @@ function importBackup(file){
   reader.readAsText(file);
 }
 
-function cycle(val){
-  return val === 'done' ? '' : 'done';
+const TWO_STATE_ITEMS = ['cable_support_brackets']; // these skip "not started" after first tap - only Complete <-> N/A
+
+function cycle(item, val){
+  if(TWO_STATE_ITEMS.includes(item)){
+    return val === 'done' ? 'na' : 'done';
+  }
+  if(val === '') return 'done';
+  if(val === 'done') return 'na';
+  return '';
 }
 
 function chipContent(val){
-  return val === 'done' ? '\u2713' : '\u2610';
+  if(val === 'done') return '\u2713';
+  if(val === 'na') return 'N/A';
+  return '\u2610';
 }
 function chipClass(val){
-  return val === 'done' ? 'chip done' : 'chip';
+  if(val === 'done') return 'chip done';
+  if(val === 'na') return 'chip na';
+  return 'chip';
 }
 
 function locResolvedCount(loc_id){
   const s = state[loc_id];
-  return ITEMS.filter(k => s[k] === 'done').length;
+  return ITEMS.filter(k => s[k] === 'done' || s[k] === 'na').length;
 }
 function locComplete(loc_id){
   return locResolvedCount(loc_id) === ITEMS.length;
@@ -513,7 +525,7 @@ function render(){
     chip.addEventListener('click', () => {
       const loc = chip.dataset.loc;
       const item = chip.dataset.item;
-      state[loc][item] = cycle(state[loc][item]);
+      state[loc][item] = cycle(item, state[loc][item]);
       queueSave();
       render();
     });
