@@ -277,6 +277,38 @@
     width: 34px; height: 34px; font-size: 18px; cursor:pointer;
   }
 
+  .activity-panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 20px;
+  }
+  .activity-header{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 10px;
+  }
+  .activity-header h2{ margin:0; font-size:16px; }
+  #activityContent{ overflow-y: auto; }
+  .activity-day{
+    font-size: 11px; color: var(--amber); text-transform: uppercase;
+    letter-spacing: 1px; margin: 16px 0 8px; font-weight: 700;
+  }
+  .activity-day:first-child{ margin-top: 0; }
+  .activity-entry{
+    display:flex; justify-content:space-between; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .activity-entry .who{ color: var(--text); }
+  .activity-entry .who b{ color: var(--amber); font-weight:600; }
+  .activity-entry .when{ color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .activity-empty{ color: var(--muted); font-size: 13px; text-align:center; padding: 30px 0; }
+
   .comments-input{
     width: 100%;
     background: transparent;
@@ -347,6 +379,9 @@
     <button class="ghost" id="resetBtn">Reset all marks</button>
     <button class="ghost" id="exportBtn">Export backup</button>
     <button class="ghost" id="importBtn">Import backup</button>
+    <button class="ghost" id="exportCsvBtn">Export to Excel</button>
+    <button class="ghost" id="exportPhotosBtn">Export Photos</button>
+    <button class="ghost" id="activityBtn">Activity Log</button>
     <input type="file" id="importFile" accept="application/json" style="display:none">
     <input type="file" id="photoFile" accept="image/*" style="display:none">
     <div class="save-indicator"><span class="dot-pulse" id="saveDot" style="opacity:0"></span><span id="saveText">Synced</span></div>
@@ -391,6 +426,17 @@
 <div class="lightbox" id="lightbox">
   <button class="lightbox-close" id="lightboxClose">&times;</button>
   <img id="lightboxImg" src="" alt="Photo">
+</div>
+
+<div class="lightbox" id="activityModal">
+  <button class="lightbox-close" id="activityClose">&times;</button>
+  <div class="activity-panel">
+    <div class="activity-header">
+      <h2>Activity Log</h2>
+      <button class="ghost" id="exportActivityBtn">Export log to Excel</button>
+    </div>
+    <div id="activityContent"></div>
+  </div>
 </div>
 
 <script>
@@ -445,6 +491,8 @@ const ITEM_LABELS = {
 const PHOTO_ITEMS = ['structure_photo','bonding_photo'];
 const PHOTO_LABELS = { structure_photo: 'Structure', bonding_photo: 'Bonding' };
 const STORAGE_KEY = 'ocs-switch-tracker-state';
+const ACTIVITY_KEY = 'ocs-switch-tracker-activity';
+let activityLog = []; // { ts: ISOString, loc: '22-131', item: 'Motor', value: 'Complete' }
 
 let state = {};
 LOCATIONS.forEach(l => {
@@ -470,7 +518,26 @@ function loadState(){
   }catch(e){
     console.log('No existing tracker data yet, starting fresh.', e);
   }
+  try{
+    const rawLog = localStorage.getItem(ACTIVITY_KEY);
+    if(rawLog) activityLog = JSON.parse(rawLog);
+  }catch(e){
+    console.log('No existing activity log yet, starting fresh.', e);
+  }
   render();
+}
+
+function saveActivity(){
+  try{
+    localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
+  }catch(e){
+    console.error('Could not save activity log', e);
+  }
+}
+
+function logActivity(locId, itemLabel, value){
+  activityLog.push({ ts: new Date().toISOString(), loc: locId, item: itemLabel, value });
+  saveActivity();
 }
 
 function queueSave(){
@@ -523,6 +590,143 @@ function importBackup(file){
     }
   };
   reader.readAsText(file);
+}
+
+// --- CSV / Excel export ---
+function csvEscape(val){
+  const s = String(val === undefined || val === null ? '' : val);
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function tickDisplay(val){
+  if(val === 'done') return 'Complete';
+  if(val === 'na') return 'N/A';
+  return '';
+}
+
+function downloadCsv(filename, rows){
+  const csv = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM so Excel reads it cleanly
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportTrackerCsv(){
+  const header = ['No.', 'Location ID', 'Chainage', 'Main', 'Wire Run', 'Drawing No.',
+    ...ITEMS.map(k => ITEM_LABELS[k]),
+    ...PHOTO_ITEMS.map(k => PHOTO_LABELS[k] + ' Photo'),
+    'Comments'];
+  const rows = [header];
+  LOCATIONS.forEach(loc => {
+    const s = state[loc.loc_id];
+    rows.push([
+      loc.no, loc.loc_id, loc.chainage, loc.main, loc.wire_run, loc.drawing,
+      ...ITEMS.map(k => tickDisplay(s[k])),
+      ...PHOTO_ITEMS.map(k => s[k] ? 'Yes' : 'No'),
+      s.comments || ''
+    ]);
+  });
+  const stamp = new Date().toISOString().slice(0,10);
+  downloadCsv(`ocs-switch-tracker-${stamp}.csv`, rows);
+}
+
+function exportActivityCsv(){
+  const header = ['Date', 'Time', 'Location ID', 'Item', 'Status / Note'];
+  const rows = [header];
+  activityLog.forEach(e => {
+    const d = new Date(e.ts);
+    rows.push([d.toLocaleDateString(), d.toLocaleTimeString(), e.loc, e.item, e.value]);
+  });
+  const stamp = new Date().toISOString().slice(0,10);
+  downloadCsv(`ocs-switch-tracker-activity-log-${stamp}.csv`, rows);
+}
+
+// --- Photo gallery export (standalone HTML, since CSV/Excel can't embed images) ---
+function exportPhotoGallery(){
+  const withPhotos = LOCATIONS.filter(l => {
+    const s = state[l.loc_id];
+    return PHOTO_ITEMS.some(k => s[k]);
+  });
+  if(withPhotos.length === 0){
+    alert('No photos have been added yet \u2014 nothing to export.');
+    return;
+  }
+  const sections = withPhotos.map(loc => {
+    const s = state[loc.loc_id];
+    const imgs = PHOTO_ITEMS.filter(k => s[k]).map(k => `
+      <div class="photo-block">
+        <div class="photo-label">${PHOTO_LABELS[k]}</div>
+        <img src="${s[k]}" alt="${PHOTO_LABELS[k]} photo at ${loc.loc_id}">
+      </div>`).join('');
+    return `
+      <section>
+        <h2>${loc.loc_id} <span>Ch. ${loc.chainage} \u00b7 ${loc.main}</span></h2>
+        <div class="photo-row">${imgs}</div>
+      </section>`;
+  }).join('\n');
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>OCS Switch Tracker \u2014 Photos</title>
+<style>
+  body{ font-family: Arial, sans-serif; background:#10141a; color:#e8ecf1; padding:24px; }
+  h1{ color:#f2a900; }
+  section{ margin-bottom:32px; border-bottom:1px solid #2a333f; padding-bottom:20px; }
+  h2{ font-size:16px; margin-bottom:12px; }
+  h2 span{ color:#8a97a6; font-weight:normal; font-size:13px; margin-left:8px; }
+  .photo-row{ display:flex; gap:16px; flex-wrap:wrap; }
+  .photo-block{ text-align:center; }
+  .photo-label{ font-size:11px; color:#8a97a6; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+  img{ max-width: 360px; max-height: 360px; border-radius:8px; border:1px solid #2a333f; }
+  @media print{ body{ background:#fff; color:#000; } img{ border-color:#ccc; } }
+</style></head>
+<body>
+<h1>OCS Switch Location Install Tracker \u2014 Photo Log</h1>
+<p style="color:#8a97a6;">Exported ${new Date().toLocaleString()}</p>
+${sections}
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `ocs-switch-tracker-photos-${stamp}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// --- Activity log viewer ---
+function renderActivityLog(){
+  const container = document.getElementById('activityContent');
+  if(activityLog.length === 0){
+    container.innerHTML = '<div class="activity-empty">No activity logged yet \u2014 ticks, comments, and photos will show up here as you go.</div>';
+    return;
+  }
+  const sorted = [...activityLog].sort((a,b) => new Date(b.ts) - new Date(a.ts));
+  let currentDay = null;
+  let html = '';
+  sorted.forEach(e => {
+    const d = new Date(e.ts);
+    const dayKey = d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    if(dayKey !== currentDay){
+      html += `<div class="activity-day">${dayKey}</div>`;
+      currentDay = dayKey;
+    }
+    html += `<div class="activity-entry">
+      <span class="who"><b>${e.loc}</b> \u2014 ${e.item}: ${e.value}</span>
+      <span class="when">${d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+    </div>`;
+  });
+  container.innerHTML = html;
 }
 
 const TWO_STATE_ITEMS = ['cable_support_brackets']; // these skip "not started" after first tap - only Complete <-> N/A
@@ -645,14 +849,26 @@ function render(){
       const loc = chip.dataset.loc;
       const item = chip.dataset.item;
       state[loc][item] = cycle(item, state[loc][item]);
+      const newVal = state[loc][item];
+      const displayVal = newVal === 'done' ? 'Complete' : (newVal === 'na' ? 'N/A' : 'Not started');
+      logActivity(loc, ITEM_LABELS[item] || item, displayVal);
       queueSave();
       render();
     });
   });
   tbody.querySelectorAll('.comments-input').forEach(inp => {
+    inp.addEventListener('focus', () => {
+      inp.dataset.prevValue = inp.value;
+    });
     inp.addEventListener('input', () => {
       state[inp.dataset.loc].comments = inp.value;
       queueSave();
+    });
+    inp.addEventListener('blur', () => {
+      const prev = inp.dataset.prevValue || '';
+      if(inp.value.trim() && inp.value !== prev){
+        logActivity(inp.dataset.loc, 'Comment', inp.value.trim());
+      }
     });
   });
 
@@ -727,6 +943,7 @@ photoInput.addEventListener('change', async (e) => {
   try{
     const dataUrl = await compressImage(file, 480, 0.6);
     state[pendingPhotoTarget.loc][pendingPhotoTarget.item] = dataUrl;
+    logActivity(pendingPhotoTarget.loc, (PHOTO_LABELS[pendingPhotoTarget.item] || pendingPhotoTarget.item) + ' photo', 'Added');
     queueSave();
     render();
   }catch(err){
@@ -753,7 +970,9 @@ function wirePhotoHandlers(){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if(!confirm('Remove this photo?')) return;
-      state[btn.dataset.loc][btn.dataset.item] = null;
+      const loc = btn.dataset.loc, item = btn.dataset.item;
+      state[loc][item] = null;
+      logActivity(loc, (PHOTO_LABELS[item] || item) + ' photo', 'Removed');
       queueSave();
       render();
     });
@@ -765,6 +984,20 @@ document.getElementById('lightboxClose').addEventListener('click', () => {
 });
 document.getElementById('lightbox').addEventListener('click', (e) => {
   if(e.target.id === 'lightbox') document.getElementById('lightbox').classList.remove('open');
+});
+
+document.getElementById('exportCsvBtn').addEventListener('click', exportTrackerCsv);
+document.getElementById('exportPhotosBtn').addEventListener('click', exportPhotoGallery);
+document.getElementById('exportActivityBtn').addEventListener('click', exportActivityCsv);
+document.getElementById('activityBtn').addEventListener('click', () => {
+  renderActivityLog();
+  document.getElementById('activityModal').classList.add('open');
+});
+document.getElementById('activityClose').addEventListener('click', () => {
+  document.getElementById('activityModal').classList.remove('open');
+});
+document.getElementById('activityModal').addEventListener('click', (e) => {
+  if(e.target.id === 'activityModal') document.getElementById('activityModal').classList.remove('open');
 });
 
 loadState();
