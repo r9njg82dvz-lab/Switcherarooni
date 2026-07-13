@@ -162,7 +162,7 @@
   table{
     border-collapse: collapse;
     width: 100%;
-    min-width: 1180px;
+    min-width: 1650px;
     background: var(--panel);
   }
   thead th{
@@ -219,6 +219,64 @@
   .chip.done{ background: var(--green-dim); border-color: var(--green); color: var(--green); font-weight:700;}
   .chip.na{ background: var(--grey-chip); border-color: var(--grey-chip); color: var(--muted); font-size:10px; font-weight:700;}
 
+  .photo-add{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap: 2px;
+    width: 46px; height: 40px;
+    border-radius: 6px;
+    border: 1px dashed var(--line);
+    background: var(--panel-2);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .photo-add span{ font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .photo-add:hover{ border-color: var(--amber); color: var(--amber); }
+
+  .photo-thumb-wrap{
+    position: relative;
+    display: inline-block;
+    width: 46px; height: 40px;
+  }
+  .photo-thumb{
+    width: 46px; height: 40px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--green);
+    cursor: pointer;
+    display: block;
+  }
+  .photo-remove{
+    position: absolute;
+    top: -6px; right: -6px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--red);
+    color: #fff;
+    border: none;
+    font-size: 11px;
+    line-height: 16px;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .lightbox{
+    display:none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 50;
+    align-items:center; justify-content:center;
+    padding: 24px;
+  }
+  .lightbox.open{ display:flex; }
+  .lightbox img{ max-width: 100%; max-height: 100%; border-radius: 8px; }
+  .lightbox-close{
+    position: absolute; top: 18px; right: 18px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 50%;
+    width: 34px; height: 34px; font-size: 18px; cursor:pointer;
+  }
+
   .comments-input{
     width: 100%;
     background: transparent;
@@ -266,7 +324,7 @@
     </div>
     <div class="stats">
       <div class="stat"><div class="num" id="statComplete">0/26</div><div class="lbl">Locations complete</div></div>
-      <div class="stat"><div class="num" id="statItems">0/104</div><div class="lbl">Items resolved</div></div>
+      <div class="stat"><div class="num" id="statItems">0/182</div><div class="lbl">Items resolved</div></div>
       <div class="stat"><div class="num" id="statPct">0%</div><div class="lbl">Progress</div></div>
     </div>
   </header>
@@ -290,6 +348,7 @@
     <button class="ghost" id="exportBtn">Export backup</button>
     <button class="ghost" id="importBtn">Import backup</button>
     <input type="file" id="importFile" accept="application/json" style="display:none">
+    <input type="file" id="photoFile" accept="image/*" style="display:none">
     <div class="save-indicator"><span class="dot-pulse" id="saveDot" style="opacity:0"></span><span id="saveText">Synced</span></div>
   </div>
 
@@ -307,6 +366,11 @@
           <th class="center">Switch Rod Brackets</th>
           <th class="center">Cable Support Brackets</th>
           <th class="center">Switch</th>
+          <th class="center">Rough In</th>
+          <th class="center">Crimped</th>
+          <th class="center">Bonding</th>
+          <th class="center">&#128247; Structure</th>
+          <th class="center">&#128247; Bonding</th>
           <th>Comments</th>
         </tr>
       </thead>
@@ -318,10 +382,15 @@
     <span class="item"><span class="chip">&#9744;</span> Not started</span>
     <span class="item"><span class="chip done">&#10003;</span> Complete</span>
     <span class="item"><span class="chip na">N/A</span> Not applicable</span>
-    <span class="item">&mdash; tap a box to cycle: not started &rarr; complete &rarr; N/A &rarr; back to not started &middot; row highlights green once all 4 items are resolved (complete or N/A)</span>
+    <span class="item">&mdash; tap a box to cycle: not started &rarr; complete &rarr; N/A &rarr; back to not started &middot; row highlights green once all 7 checklist items are resolved (complete or N/A) &middot; photos don't count toward completion</span>
   </div>
 
   <footer>This file saves to this browser only. Use Export backup to hand progress to someone else or move it to another device.</footer>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightboxClose">&times;</button>
+  <img id="lightboxImg" src="" alt="Photo">
 </div>
 
 <script>
@@ -363,18 +432,28 @@ const LOCATIONS = [
 {no:25, loc_id:'25-28', chainage:'25.970', main:'UP MAIN', wire_run:'C-M025-2', drawing:'B.3768-03-Z3100-E078'},
 {no:26, loc_id:'26-01', chainage:'26.010', main:'DOWN MAIN', wire_run:'C-M025-1', drawing:'B.3768-03-Z3100-E080'},
 ];
-const ITEMS = ['motor','switch_rod_brackets','cable_support_brackets','switch'];
+const ITEMS = ['motor','switch_rod_brackets','cable_support_brackets','switch','rough_in','crimped','bonding'];
 const ITEM_LABELS = {
   motor: 'Motor',
   switch_rod_brackets: 'Switch Rod Brackets',
   cable_support_brackets: 'Cable Support Brackets',
-  switch: 'Switch'
+  switch: 'Switch',
+  rough_in: 'Rough In',
+  crimped: 'Crimped',
+  bonding: 'Bonding'
 };
+const PHOTO_ITEMS = ['structure_photo','bonding_photo'];
+const PHOTO_LABELS = { structure_photo: 'Structure', bonding_photo: 'Bonding' };
 const STORAGE_KEY = 'ocs-switch-tracker-state';
 
 let state = {};
 LOCATIONS.forEach(l => {
-  state[l.loc_id] = { motor:'', switch_rod_brackets:'', cable_support_brackets:'', switch:'', comments:'' };
+  state[l.loc_id] = {
+    motor:'', switch_rod_brackets:'', cable_support_brackets:'', switch:'',
+    rough_in:'', crimped:'', bonding:'',
+    structure_photo: null, bonding_photo: null,
+    comments:''
+  };
 });
 
 let saveTimer = null;
@@ -468,6 +547,45 @@ function chipClass(val){
   return 'chip';
 }
 
+function photoCellHtml(locId, key, dataUrl){
+  if(dataUrl){
+    return `
+      <div class="photo-thumb-wrap">
+        <img class="photo-thumb" src="${dataUrl}" data-loc="${locId}" data-item="${key}" alt="${PHOTO_LABELS[key]} photo">
+        <button class="photo-remove" data-loc="${locId}" data-item="${key}" title="Remove photo">&times;</button>
+      </div>`;
+  }
+  return `<button class="photo-add" data-loc="${locId}" data-item="${key}">&#128247;<span>Add</span></button>`;
+}
+
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if(width > height && width > maxDim){
+          height = Math.round(height * (maxDim / width));
+          width = maxDim;
+        } else if(height > maxDim){
+          width = Math.round(width * (maxDim / height));
+          height = maxDim;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function locResolvedCount(loc_id){
   const s = state[loc_id];
   return ITEMS.filter(k => s[k] === 'done' || s[k] === 'na').length;
@@ -510,6 +628,7 @@ function render(){
       <td>${loc.wire_run}</td>
       <td class="drawing">${loc.drawing}</td>
       ${ITEMS.map(k => `<td style="text-align:center"><div class="${chipClass(s[k])}" data-loc="${loc.loc_id}" data-item="${k}">${chipContent(s[k])}</div></td>`).join('')}
+      ${PHOTO_ITEMS.map(k => `<td style="text-align:center">${photoCellHtml(loc.loc_id, k, s[k])}</td>`).join('')}
       <td><input type="text" class="comments-input" data-loc="${loc.loc_id}" placeholder="Add note\u2026" value="${(s.comments||'').replace(/"/g,'&quot;')}"></td>
     `;
     tbody.appendChild(tr);
@@ -517,7 +636,7 @@ function render(){
 
   if(visibleCount === 0){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="11" style="text-align:center; color:var(--muted); padding:24px;">No locations match this search/filter.</td>`;
+    tr.innerHTML = `<td colspan="16" style="text-align:center; color:var(--muted); padding:24px;">No locations match this search/filter.</td>`;
     tbody.appendChild(tr);
   }
 
@@ -537,6 +656,7 @@ function render(){
     });
   });
 
+  wirePhotoHandlers();
   renderStats();
   renderRail();
 }
@@ -564,7 +684,7 @@ function renderRail(){
     const dot = document.createElement('div');
     dot.className = 'rail-dot' + (resolved === ITEMS.length ? ' complete' : (resolved > 0 ? ' partial' : ''));
     dot.style.left = pct + '%';
-    dot.title = `${loc.loc_id} \u2014 Ch.${loc.chainage} \u2014 ${resolved}/4 resolved`;
+    dot.title = `${loc.loc_id} \u2014 Ch.${loc.chainage} \u2014 ${resolved}/7 resolved`;
     dot.addEventListener('click', () => {
       document.getElementById('search').value = loc.loc_id;
       render();
@@ -578,7 +698,12 @@ document.getElementById('filter').addEventListener('change', render);
 document.getElementById('resetBtn').addEventListener('click', () => {
   if(!confirm('Reset all marks and comments for every location? This cannot be undone.')) return;
   LOCATIONS.forEach(l => {
-    state[l.loc_id] = { motor:'', switch_rod_brackets:'', cable_support_brackets:'', switch:'', comments:'' };
+    state[l.loc_id] = {
+      motor:'', switch_rod_brackets:'', cable_support_brackets:'', switch:'',
+      rough_in:'', crimped:'', bonding:'',
+      structure_photo: null, bonding_photo: null,
+      comments:''
+    };
   });
   queueSave();
   render();
@@ -589,6 +714,57 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if(file) importBackup(file);
   e.target.value = '';
+});
+
+// --- Photo capture / select ---
+let pendingPhotoTarget = null; // { loc, item }
+const photoInput = document.getElementById('photoFile');
+
+photoInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file || !pendingPhotoTarget) return;
+  try{
+    const dataUrl = await compressImage(file, 480, 0.6);
+    state[pendingPhotoTarget.loc][pendingPhotoTarget.item] = dataUrl;
+    queueSave();
+    render();
+  }catch(err){
+    alert('Could not process that photo. Try a different one.');
+    console.error(err);
+  }
+  pendingPhotoTarget = null;
+});
+
+function wirePhotoHandlers(){
+  document.querySelectorAll('.photo-add').forEach(btn => {
+    btn.addEventListener('click', () => {
+      pendingPhotoTarget = { loc: btn.dataset.loc, item: btn.dataset.item };
+      photoInput.click();
+    });
+  });
+  document.querySelectorAll('.photo-thumb').forEach(img => {
+    img.addEventListener('click', () => {
+      document.getElementById('lightboxImg').src = img.src;
+      document.getElementById('lightbox').classList.add('open');
+    });
+  });
+  document.querySelectorAll('.photo-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if(!confirm('Remove this photo?')) return;
+      state[btn.dataset.loc][btn.dataset.item] = null;
+      queueSave();
+      render();
+    });
+  });
+}
+
+document.getElementById('lightboxClose').addEventListener('click', () => {
+  document.getElementById('lightbox').classList.remove('open');
+});
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if(e.target.id === 'lightbox') document.getElementById('lightbox').classList.remove('open');
 });
 
 loadState();
